@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>TackR Dashboard</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        margin: 20px;
+        background: #f7f7f8;
+      }
+      h1 {
+        margin-bottom: 16px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        background: #fff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+      }
+      th,
+      td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #eee;
+        text-align: left;
+        font-size: 14px;
+      }
+      th {
+        background: #f0f0f2;
+        font-weight: 600;
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+      .status-ok {
+        color: #1a7f37;
+        font-weight: 600;
+      }
+      .status-missing {
+        color: #c78100;
+        font-weight: 600;
+      }
+      .status-error {
+        color: #b42318;
+        font-weight: 600;
+      }
+      a {
+        color: #2563eb;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .small {
+        font-size: 12px;
+        color: #555;
+      }
+      .tag {
+        display: inline-block;
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: #eef2ff;
+        color: #4338ca;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>TackR Dashboard</h1>
+    <p class="small">
+      Showing tracked items with their latest captured value.
+    </p>
+    <table id="items-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Item</th>
+          <th>Latest Value</th>
+          <th>Status</th>
+          <th>Last Checked</th>
+        </tr>
+      </thead>
+      <tbody id="items-body"></tbody>
+    </table>
+
+    <script>
+      async function loadData() {
+        const res = await fetch("/tracked-items/summary/all");
+        const data = await res.json();
+
+        const tbody = document.getElementById("items-body");
+        tbody.innerHTML = "";
+
+        if (!data || data.length === 0) {
+          const tr = document.createElement("tr");
+          const td = document.createElement("td");
+          td.colSpan = 5;
+          td.textContent = "No tracked items yet.";
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+          return;
+        }
+
+        for (const item of data) {
+          const tr = document.createElement("tr");
+
+          const tdId = document.createElement("td");
+          tdId.textContent = item.id;
+
+          const tdItem = document.createElement("td");
+          const nameEl = document.createElement("div");
+          nameEl.textContent = item.name || "(unnamed)";
+          const urlEl = document.createElement("div");
+          urlEl.className = "small";
+          const link = document.createElement("a");
+          link.href = item.url;
+          link.target = "_blank";
+          link.rel = "noreferrer";
+          link.textContent = new URL(item.url).hostname;
+          urlEl.appendChild(link);
+          tdItem.appendChild(nameEl);
+          tdItem.appendChild(urlEl);
+
+          const tdValue = document.createElement("td");
+          const latest = item.latestSnapshot;
+          if (latest) {
+            const valRaw = latest.valueRaw || "";
+            const valNum = latest.valueNumeric;
+            tdValue.textContent =
+              valNum != null ? `${valNum} (${valRaw})` : valRaw || "—";
+          } else {
+            tdValue.textContent = "—";
+          }
+
+          const tdStatus = document.createElement("td");
+          if (!latest) {
+            tdStatus.textContent = "no data";
+          } else {
+            const span = document.createElement("span");
+            span.textContent = latest.status;
+            span.className =
+              latest.status === "ok"
+                ? "status-ok"
+                : latest.status === "missing"
+                ? "status-missing"
+                : latest.status === "error"
+                ? "status-error"
+                : "";
+            tdStatus.appendChild(span);
+          }
+
+          const tdTime = document.createElement("td");
+          if (latest && latest.takenAt) {
+            const d = new Date(latest.takenAt);
+            tdTime.textContent = d.toLocaleString();
+          } else {
+            tdTime.textContent = "—";
+          }
+
+          tr.appendChild(tdId);
+          tr.appendChild(tdItem);
+          tr.appendChild(tdValue);
+          tr.appendChild(tdStatus);
+          tr.appendChild(tdTime);
+          tbody.appendChild(tr);
+        }
+      }
+
+      loadData();
+    </script>
+  </body>
+</html>

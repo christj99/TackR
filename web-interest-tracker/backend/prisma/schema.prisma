@@ -1,0 +1,32 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model TrackedItem {
+  id         Int         @id @default(autoincrement())
+  name       String
+  url        String
+  selector   String
+  sampleText String?
+  createdAt  DateTime    @default(now())
+  snapshots  Snapshot[]
+}
+
+model Snapshot {
+  id            Int         @id @default(autoincrement())
+  trackedItemId Int
+  valueRaw      String
+  valueNumeric  Float?
+  status        String      @default("ok")
+  takenAt       DateTime    @default(now())
+
+  trackedItem   TrackedItem @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
+}

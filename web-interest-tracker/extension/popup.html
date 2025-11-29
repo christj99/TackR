@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Web Interest Tracker</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 8px;
+        width: 320px;
+      }
+      button {
+        padding: 6px 10px;
+        margin-bottom: 8px;
+        cursor: pointer;
+      }
+      .item {
+        border-bottom: 1px solid #ddd;
+        padding: 4px 0;
+      }
+      .name {
+        font-weight: 600;
+      }
+      .url {
+        font-size: 11px;
+        color: #666;
+        word-break: break-all;
+      }
+      .sample {
+        font-size: 12px;
+        color: #333;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="selectBtn">Track element on this page</button>
+    <div id="items"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
