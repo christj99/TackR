@@ -1,31 +1,33 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { PrismaClient } from "@prisma/client";
-import trackedItemsRouter from "./routes/trackedItems";
 import path from "path";
-
+import { PrismaClient } from "@prisma/client";
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import trackedItemsRouter from "./routes/trackedItems";
+import agentRouter from "./routes/agent";
 
 dotenv.config();
 
+const adapter = new PrismaBetterSqlite3({
+  url: process.env.DATABASE_URL || "file:./prisma/dev.db",
+});
+
+const prisma = new PrismaClient({ adapter });
+
 const app = express();
-const prisma = new PrismaClient();
 const PORT = process.env.PORT || 4000;
 
-// middlewares
 app.use(cors());
 app.use(express.json());
-
-// serve static files (dashboard, etc.)
 app.use(express.static(path.join(__dirname, "..", "public")));
 
+app.use("/agent", agentRouter(prisma));
 
-// health check
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-// tracked items routes
 app.use("/tracked-items", trackedItemsRouter(prisma));
 
 app.listen(PORT, () => {

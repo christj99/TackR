@@ -1,29 +1,27 @@
 {
   "manifest_version": 3,
-  "name": "Web Interest Tracker",
-  "version": "0.1.0",
-  "description": "Track prices/text on any webpage via sticky interest points.",
-  "permissions": [
-    "activeTab",
-    "scripting",
-    "storage"
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
+  "name": "TackR",
+  "version": "0.2",
+  "description": "Track values on web pages.",
+  "permissions": ["tabs", "scripting", "alarms", "offscreen"],
+  "host_permissions": ["http://*/*", "https://*/*"],
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "Web Interest Tracker"
+    "default_popup": "popup.html"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["http://*/*", "https://*/*"],
       "js": ["contentScript.js"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["offscreen.html"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

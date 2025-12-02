@@ -1,174 +1,270 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <title>TackR Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
+      :root {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        color: #111827;
+        background: #f3f4f6;
+      }
+
       body {
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-        margin: 20px;
-        background: #f7f7f8;
+        margin: 0;
+        padding: 0;
+        background: #f3f4f6;
       }
-      h1 {
-        margin-bottom: 16px;
+
+      .page {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 16px;
       }
-      table {
-        border-collapse: collapse;
-        width: 100%;
-        background: #fff;
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 12px;
+      }
+
+      .title {
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      .subtitle {
+        font-size: 12px;
+        color: #6b7280;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .controls > * {
+        font-size: 12px;
+      }
+
+      input,
+      select {
+        padding: 4px 6px;
+        border-radius: 4px;
+        border: 1px solid #d1d5db;
+        min-width: 0;
+      }
+
+      button {
+        padding: 4px 10px;
+        border-radius: 4px;
+        border: 1px solid transparent;
+        background: #111827;
+        color: white;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: white;
+        color: #111827;
+        border-color: #d1d5db;
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+
+      .card {
+        background: white;
         border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+        padding: 10px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
       }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+
+      thead {
+        background: #f9fafb;
+      }
+
       th,
       td {
-        padding: 8px 10px;
-        border-bottom: 1px solid #eee;
         text-align: left;
-        font-size: 14px;
+        padding: 6px 8px;
+        border-bottom: 1px solid #e5e7eb;
+        vertical-align: top;
       }
+
       th {
-        background: #f0f0f2;
         font-weight: 600;
-      }
-      tr:last-child td {
-        border-bottom: none;
-      }
-      .status-ok {
-        color: #1a7f37;
-        font-weight: 600;
-      }
-      .status-missing {
-        color: #c78100;
-        font-weight: 600;
-      }
-      .status-error {
-        color: #b42318;
-        font-weight: 600;
-      }
-      a {
-        color: #2563eb;
-        text-decoration: none;
-      }
-      a:hover {
-        text-decoration: underline;
-      }
-      .small {
-        font-size: 12px;
-        color: #555;
-      }
-      .tag {
-        display: inline-block;
         font-size: 11px;
+        color: #6b7280;
+      }
+
+      tr:hover td {
+        background: #f9fafb;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
         padding: 2px 6px;
         border-radius: 999px;
-        background: #eef2ff;
-        color: #4338ca;
+        font-size: 10px;
+        font-weight: 500;
+      }
+
+      .badge-type-price {
+        background: #eff6ff;
+        color: #1d4ed8;
+      }
+
+      .badge-type-number {
+        background: #ecfdf3;
+        color: #15803d;
+      }
+
+      .badge-type-text {
+        background: #f5f3ff;
+        color: #6d28d9;
+      }
+
+      .badge-status-ok {
+        background: #ecfdf3;
+        color: #15803d;
+      }
+
+      .badge-status-missing {
+        background: #fffbeb;
+        color: #b45309;
+      }
+
+      .badge-status-error {
+        background: #fef2f2;
+        color: #b91c1c;
+      }
+
+      .url {
+        color: #4b5563;
+        font-size: 11px;
+        word-break: break-all;
+      }
+
+      .name {
+        font-weight: 600;
+        font-size: 12px;
+      }
+
+      .value-main {
+        font-weight: 600;
+        font-size: 13px;
+      }
+
+      .value-sub {
+        font-size: 11px;
+        color: #6b7280;
+      }
+
+      .trigger-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+      }
+
+      .status-bar {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #4b5563;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .status-bar span {
+        white-space: nowrap;
+      }
+
+      .status-bar .right {
+        text-align: right;
+      }
+
+      .muted {
+        color: #9ca3af;
       }
     </style>
   </head>
   <body>
-    <h1>TackR Dashboard</h1>
-    <p class="small">
-      Showing tracked items with their latest captured value.
-    </p>
-    <table id="items-table">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Item</th>
-          <th>Latest Value</th>
-          <th>Status</th>
-          <th>Last Checked</th>
-        </tr>
-      </thead>
-      <tbody id="items-body"></tbody>
-    </table>
+    <div class="page">
+      <div class="header">
+        <div>
+          <div class="title">TackR Dashboard</div>
+          <div class="subtitle">
+            See everything your system is tracking in one place.
+          </div>
+        </div>
+        <div class="subtitle" id="summaryText"></div>
+      </div>
 
-    <script>
-      async function loadData() {
-        const res = await fetch("/tracked-items/summary/all");
-        const data = await res.json();
+      <div class="controls">
+        <input
+          id="searchInput"
+          type="text"
+          placeholder="Search by name or URL..."
+        />
+        <select id="typeFilter">
+          <option value="">All types</option>
+          <option value="price">Price</option>
+          <option value="number">Number</option>
+          <option value="text">Text</option>
+        </select>
+        <select id="statusFilter">
+          <option value="">All statuses</option>
+          <option value="ok">OK</option>
+          <option value="missing">Missing</option>
+          <option value="error">Error</option>
+        </select>
+        <button id="refreshBtn">Refresh now</button>
+        <button id="reloadBtn" class="secondary">Reload from API</button>
+      </div>
 
-        const tbody = document.getElementById("items-body");
-        tbody.innerHTML = "";
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th style="width: 120px">Latest Value</th>
+              <th style="width: 120px">Type / Status</th>
+              <th style="width: 110px">Triggers</th>
+              <th style="width: 130px">Last Checked</th>
+            </tr>
+          </thead>
+          <tbody id="itemsTableBody">
+            <tr>
+              <td colspan="5" class="muted">Loading...</td>
+            </tr>
+          </tbody>
+        </table>
 
-        if (!data || data.length === 0) {
-          const tr = document.createElement("tr");
-          const td = document.createElement("td");
-          td.colSpan = 5;
-          td.textContent = "No tracked items yet.";
-          tr.appendChild(td);
-          tbody.appendChild(tr);
-          return;
-        }
+        <div class="status-bar">
+          <span id="statusText" class="muted"></span>
+          <span class="right muted" id="footerHint">
+            Tip: use the extension's AI Track to add new items.
+          </span>
+        </div>
+      </div>
+    </div>
 
-        for (const item of data) {
-          const tr = document.createElement("tr");
-
-          const tdId = document.createElement("td");
-          tdId.textContent = item.id;
-
-          const tdItem = document.createElement("td");
-          const nameEl = document.createElement("div");
-          nameEl.textContent = item.name || "(unnamed)";
-          const urlEl = document.createElement("div");
-          urlEl.className = "small";
-          const link = document.createElement("a");
-          link.href = item.url;
-          link.target = "_blank";
-          link.rel = "noreferrer";
-          link.textContent = new URL(item.url).hostname;
-          urlEl.appendChild(link);
-          tdItem.appendChild(nameEl);
-          tdItem.appendChild(urlEl);
-
-          const tdValue = document.createElement("td");
-          const latest = item.latestSnapshot;
-          if (latest) {
-            const valRaw = latest.valueRaw || "";
-            const valNum = latest.valueNumeric;
-            tdValue.textContent =
-              valNum != null ? `${valNum} (${valRaw})` : valRaw || "—";
-          } else {
-            tdValue.textContent = "—";
-          }
-
-          const tdStatus = document.createElement("td");
-          if (!latest) {
-            tdStatus.textContent = "no data";
-          } else {
-            const span = document.createElement("span");
-            span.textContent = latest.status;
-            span.className =
-              latest.status === "ok"
-                ? "status-ok"
-                : latest.status === "missing"
-                ? "status-missing"
-                : latest.status === "error"
-                ? "status-error"
-                : "";
-            tdStatus.appendChild(span);
-          }
-
-          const tdTime = document.createElement("td");
-          if (latest && latest.takenAt) {
-            const d = new Date(latest.takenAt);
-            tdTime.textContent = d.toLocaleString();
-          } else {
-            tdTime.textContent = "—";
-          }
-
-          tr.appendChild(tdId);
-          tr.appendChild(tdItem);
-          tr.appendChild(tdValue);
-          tr.appendChild(tdStatus);
-          tr.appendChild(tdTime);
-          tbody.appendChild(tr);
-        }
-      }
-
-      loadData();
-    </script>
+    <script src="dashboard.js"></script>
   </body>
 </html>

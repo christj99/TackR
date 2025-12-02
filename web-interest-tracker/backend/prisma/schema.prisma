@@ -7,26 +7,66 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
 }
 
 model TrackedItem {
-  id         Int         @id @default(autoincrement())
-  name       String
-  url        String
-  selector   String
+  id        Int      @id @default(autoincrement())
+  name      String
+  url       String
+  selector  String
   sampleText String?
-  createdAt  DateTime    @default(now())
-  snapshots  Snapshot[]
+  type      String
+  fingerprint Json?
+
+  category String?
+  tags     Json?
+
+  profile             String?
+  lastSuccessAt       DateTime?
+  lastFailureAt       DateTime?
+  consecutiveFailures Int        @default(0)
+  isActive            Boolean    @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  snapshots Snapshot[]
+  triggers  Trigger[]
 }
 
+
+
 model Snapshot {
-  id            Int         @id @default(autoincrement())
+  id            Int      @id @default(autoincrement())
   trackedItemId Int
   valueRaw      String
   valueNumeric  Float?
-  status        String      @default("ok")
-  takenAt       DateTime    @default(now())
+  status        String   @default("ok")
+  takenAt       DateTime @default(now())
 
-  trackedItem   TrackedItem @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
+  trackedItem   TrackedItem    @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
+  triggerEvents TriggerEvent[]
+}
+
+model Trigger {
+  id            Int       @id @default(autoincrement())
+  trackedItemId Int
+  comparison    String
+  threshold     Float
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  lastFiredAt   DateTime?
+
+  trackedItem TrackedItem    @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
+  events      TriggerEvent[]
+}
+
+model TriggerEvent {
+  id         Int      @id @default(autoincrement())
+  triggerId  Int
+  snapshotId Int
+  createdAt  DateTime @default(now())
+
+  trigger  Trigger  @relation(fields: [triggerId], references: [id], onDelete: Cascade)
+  snapshot Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 }
