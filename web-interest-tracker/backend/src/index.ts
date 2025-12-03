@@ -6,6 +6,14 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import trackedItemsRouter from "./routes/trackedItems";
 import agentRouter from "./routes/agent";
+import boardsRouter from "./routes/boards";
+import cartRouter from "./routes/cart";
+import triggersRouter from "./routes/triggers";
+import discoverRouter from "./routes/discover";
+import merchantRulesRouter from "./routes/merchantRules";
+
+
+
 
 dotenv.config();
 
@@ -22,13 +30,29 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "..", "public")));
 
+
+app.use("/tracked-items", trackedItemsRouter(prisma));
+
 app.use("/agent", agentRouter(prisma));
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "..", "public")));
+
+app.use("/triggers", triggersRouter(prisma));
+app.use("/tracked-items", trackedItemsRouter(prisma));
+app.use("/boards", boardsRouter(prisma));
+app.use("/discover", discoverRouter(prisma));
+app.use("/cart", cartRouter(prisma));
+app.use("/merchant-rules", merchantRulesRouter(prisma));
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.use("/tracked-items", trackedItemsRouter(prisma));
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
 
 app.listen(PORT, () => {
   console.log(`API server listening on http://localhost:${PORT}`);

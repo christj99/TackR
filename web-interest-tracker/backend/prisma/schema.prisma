@@ -10,12 +10,12 @@ datasource db {
 }
 
 model TrackedItem {
-  id        Int      @id @default(autoincrement())
-  name      String
-  url       String
-  selector  String
-  sampleText String?
-  type      String
+  id          Int     @id @default(autoincrement())
+  name        String
+  url         String
+  selector    String
+  sampleText  String?
+  type        String
   fingerprint Json?
 
   category String?
@@ -24,17 +24,17 @@ model TrackedItem {
   profile             String?
   lastSuccessAt       DateTime?
   lastFailureAt       DateTime?
-  consecutiveFailures Int        @default(0)
-  isActive            Boolean    @default(true)
+  consecutiveFailures Int       @default(0)
+  isActive            Boolean   @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  snapshots Snapshot[]
-  triggers  Trigger[]
+  snapshots  Snapshot[]
+  triggers   Trigger[]
+  boardItems BoardItem[]
+  cartItems  CartItem[]
 }
-
-
 
 model Snapshot {
   id            Int      @id @default(autoincrement())
@@ -69,4 +69,70 @@ model TriggerEvent {
 
   trigger  Trigger  @relation(fields: [triggerId], references: [id], onDelete: Cascade)
   snapshot Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+}
+
+model Board {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
+  filters     Json? // arbitrary JSON: { profile: "ecommerce_price", tags: ["sneakers"] }
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items BoardItem[]
+}
+
+model BoardItem {
+  id            Int      @id @default(autoincrement())
+  boardId       Int
+  trackedItemId Int
+  createdAt     DateTime @default(now())
+
+  board       Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  trackedItem TrackedItem @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, trackedItemId])
+}
+
+model Cart {
+  id        Int      @id @default(autoincrement())
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // For future: userId field if you introduce auth.
+
+  items CartItem[]
+}
+
+model CartItem {
+  id            Int @id @default(autoincrement())
+  cartId        Int
+  trackedItemId Int
+
+  addedAt       DateTime @default(now())
+  addedPrice    Float? // Price when added (for comparison vs latest snapshot)
+  addedValueRaw String? // Raw text when added
+
+  quantity Int @default(1)
+
+  // Last time backend refreshed the cart (to detect stale price)
+  lastCheckedAt DateTime?
+  lastPrice     Float? // Latest seen price
+  lastValueRaw  String?
+
+  cart        Cart        @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  trackedItem TrackedItem @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, trackedItemId])
+}
+
+model MerchantRule {
+  id              Int       @id @default(autoincrement())
+  domain          String    @unique
+  freeShippingMin Float?    // e.g. 50 = free shipping at $50+
+  flatShipping    Float?    // default shipping cost
+  taxRate         Float?    // e.g. 0.0875
+  updatedAt       DateTime  @updatedAt
 }

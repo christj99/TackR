@@ -15,6 +15,23 @@ import {
 
 import { parseNumericFromText } from "../utils/parseValue";
 
+type PromptMultihopResult = {
+  startUrl: string;
+  status: "ok" | "no_hop1" | "no_hop2" | "no_match" | "error";
+  intermediateUrl?: string | null;
+  productUrl?: string | null;
+  hop1Reason?: string | null;
+  hop2Reason?: string | null;
+  errorMessage?: string;
+  items?: {
+    itemId: number;
+    name: string;
+    type: string;
+    snapshotId: number;
+  }[];
+};
+
+
 export default function agentRouter(prisma: PrismaClient) {
   const router = Router();
 
@@ -94,9 +111,11 @@ export default function agentRouter(prisma: PrismaClient) {
                 sampleText: proposal.sampleText,
                 type: inferredType,
                 category,
-                tags
+                tags,
+                profile: profile ?? "generic_metric"
             }
             });
+
 
 
           const numeric =
@@ -197,16 +216,18 @@ export default function agentRouter(prisma: PrismaClient) {
         }
 
         const item = await prisma.trackedItem.create({
-            data: {
+        data: {
             name: baseName,
             url,
             selector: p.selector,
             sampleText: p.sampleText,
             type: inferredType,
             category,
-            tags
-            }
+            tags,
+            profile: profile ?? "generic_metric"
+        }
         });
+
 
         const numeric =
             typeof p.valueNumeric === "number"
@@ -474,28 +495,72 @@ export default function agentRouter(prisma: PrismaClient) {
         });
         }
 
-        const productUrl = hop2.targetUrl;
+        // ---------------------------------------------------------------------------
+        // Build list of candidate product URLs (primary + fallbacks)
+        // ---------------------------------------------------------------------------
+        const candidateProductUrls: string[] = [];
+
+        if (hop2.targetUrl) {
+        candidateProductUrls.push(hop2.targetUrl);
+        }
+
+        if (hop2.fallbackUrls && hop2.fallbackUrls.length > 0) {
+        for (const u of hop2.fallbackUrls) {
+            if (u && !candidateProductUrls.includes(u)) {
+            candidateProductUrls.push(u);
+            }
+        }
+        }
+
         console.log(
-        `[MULTIHOP] Hop2 final: -> ${productUrl} (reason: ${hop2.reason})`
+        `[MULTIHOP] Hop2 final candidates: ${candidateProductUrls.join(
+            ", "
+        )} (reason: ${hop2.reason})`
         );
 
-        // Multi-element extraction on product page
-        const multi = await analyzePageAndProposeSelectorsMulti({
-        prompt: instruction,
-        url: productUrl,
-        profile: profile ?? "generic_metric"
+        // ---------------------------------------------------------------------------
+        // Try each candidate URL until one yields usable multi-track items
+        // ---------------------------------------------------------------------------
+        let chosenProductUrl: string | null = null;
+        let multi: any = null;
+
+        for (const candidateUrl of candidateProductUrls) {
+        console.log(`[MULTIHOP] Trying product candidate URL: ${candidateUrl}`);
+
+        const attempt = await analyzePageAndProposeSelectorsMulti({
+            prompt: instruction,
+            url: candidateUrl,
+            profile: profile ?? "generic_metric"
         });
 
-        if (!multi || !multi.items || multi.items.length === 0) {
+        if (attempt && attempt.items && attempt.items.length > 0) {
+            chosenProductUrl = candidateUrl;
+            multi = attempt;
+            console.log(
+            `[MULTIHOP] Selected product URL: ${candidateUrl} with ${attempt.items.length} items`
+            );
+            break;
+        }
+
+        console.log(
+            "[MULTIHOP] Candidate URL produced no items, trying next if available."
+        );
+        }
+
+        // If no candidate yielded items, bail out
+        if (!multi || !multi.items || multi.items.length === 0 || !chosenProductUrl) {
         return res.json({
             startUrl,
             intermediateUrl,
             secondIntermediateUrl,
-            productUrl,
+            productUrl: chosenProductUrl ?? null,
             status: "no_match",
             items: []
         });
         }
+
+        const productUrl = chosenProductUrl;
+
 
         const created: any[] = [];
 
@@ -730,6 +795,208 @@ export default function agentRouter(prisma: PrismaClient) {
         console.error("compare-prices route error:", err);
         res.status(500).json({ error: "internal_error" });
     }
+    });
+
+  /**
+   * POST /agent/prompt-multihop
+   *
+   * Body: {
+   *   instruction: string;        // e.g. "Find the men's License to Train Jogger and track price + rating"
+   *   startUrls: string[];        // e.g. ["https://shop.lululemon.com/", "https://www.nike.com/"]
+   *   profile?: AgentProfile;     // optional, defaults to "generic_metric"
+   * }
+   *
+   * For each startUrl:
+   *  1) Hop 1: homepage -> category/search page (planNavigationForPage)
+   *  2) Hop 2: category -> product detail page (planNavigationForProduct)
+   *  3) Extract multiple elements on product page (analyzePageAndProposeSelectorsMulti)
+   *  4) Create TrackedItem + Snapshot for each element
+   *
+   * Returns an array of results, one per startUrl.
+   */
+    router.post("/prompt-multihop", async (req, res) => {
+        try {
+        const body = (req.body || {}) as {
+            instruction?: string;
+            startUrls?: string[];
+            profile?: AgentProfile;
+        };
+
+        const { instruction, startUrls, profile } = body;
+
+        if (
+            !instruction ||
+            !startUrls ||
+            !Array.isArray(startUrls) ||
+            startUrls.length === 0
+        ) {
+            return res.status(400).json({
+            error: "instruction_and_startUrls_required",
+            message:
+                "Body must include 'instruction' and a non-empty 'startUrls' array."
+            });
+        }
+
+        const results: PromptMultihopResult[] = [];
+
+        for (const startUrl of startUrls) {
+            console.log("[PROMPT-MULTIHOP] startUrl:", startUrl);
+            console.log("[PROMPT-MULTIHOP] instruction:", instruction);
+
+            try {
+            // Hop 1: homepage -> intermediate category/search page
+            const hop1 = await planNavigationForPage({
+                startUrl,
+                instruction
+            });
+
+            if (!hop1) {
+                results.push({
+                startUrl,
+                status: "no_hop1",
+                errorMessage:
+                    "AI could not find a useful next page from the startUrl."
+                });
+                continue;
+            }
+
+            const intermediateUrl = hop1.targetUrl;
+            console.log(
+                `[PROMPT-MULTIHOP] Hop1: ${startUrl} -> ${intermediateUrl} (reason: ${hop1.reason})`
+            );
+
+            // Hop 2: intermediate page -> product detail page
+            const hop2 = await planNavigationForProduct({
+                startUrl: intermediateUrl,
+                instruction
+            });
+
+            if (!hop2) {
+                results.push({
+                startUrl,
+                status: "no_hop2",
+                intermediateUrl,
+                errorMessage:
+                    "AI could not find a product detail link from the intermediate page."
+                });
+                continue;
+            }
+
+            const productUrl = hop2.targetUrl;
+            console.log(
+                `[PROMPT-MULTIHOP] Hop2: ${intermediateUrl} -> ${productUrl} (reason: ${hop2.reason})`
+            );
+
+            // Multi-element extraction on product page
+            const multi = await analyzePageAndProposeSelectorsMulti({
+                prompt: instruction,
+                url: productUrl,
+                profile: profile ?? "generic_metric"
+            });
+
+            if (!multi || !multi.items || multi.items.length === 0) {
+                results.push({
+                startUrl,
+                status: "no_match",
+                intermediateUrl,
+                productUrl,
+                errorMessage:
+                    "No extractable items were found on the product page.",
+                items: []
+                });
+                continue;
+            }
+
+            const created: {
+                itemId: number;
+                name: string;
+                type: string;
+                snapshotId: number;
+            }[] = [];
+
+            for (const p of multi.items) {
+                const inferredType =
+                p.type && (p.type === "price" || p.type === "number" || p.type === "text")
+                    ? p.type
+                    : "price";
+
+                const baseName =
+                p.name ||
+                `Tracked from prompt: ${instruction.slice(0, 40)}`;
+
+                const item = await prisma.trackedItem.create({
+                data: {
+                    name: baseName,
+                    url: productUrl,
+                    selector: p.selector,
+                    sampleText: p.sampleText,
+                    type: inferredType,
+                    profile: profile ?? "generic_metric"
+                }
+                });
+
+                const numeric =
+                typeof p.valueNumeric === "number"
+                    ? p.valueNumeric
+                    : parseNumericFromText(p.sampleText);
+
+                const snapshot = await prisma.snapshot.create({
+                data: {
+                    trackedItemId: item.id,
+                    valueRaw: p.sampleText,
+                    valueNumeric: numeric,
+                    status: "ok"
+                }
+                });
+
+                await prisma.trackedItem.update({
+                where: { id: item.id },
+                data: {
+                    lastSuccessAt: new Date(),
+                    consecutiveFailures: 0
+                }
+                });
+
+                created.push({
+                itemId: item.id,
+                name: item.name,
+                type: item.type,
+                snapshotId: snapshot.id
+                });
+            }
+
+            results.push({
+                startUrl,
+                status: "ok",
+                intermediateUrl,
+                productUrl,
+                hop1Reason: hop1.reason ?? null,
+                hop2Reason: hop2.reason ?? null,
+                items: created
+            });
+            } catch (innerErr: any) {
+            console.error(
+                "[PROMPT-MULTIHOP] Error while processing startUrl",
+                startUrl,
+                innerErr
+            );
+            results.push({
+                startUrl,
+                status: "error",
+                errorMessage: "Internal error while processing this startUrl."
+            });
+            }
+        }
+
+        return res.json({
+            instruction,
+            profile: profile ?? "generic_metric",
+            results
+        });
+        } catch (err) {
+        console.error("prompt-multihop route error:", err);
+        return res.status(500).json({ error: "internal_error" });
+        }
     });
 
 

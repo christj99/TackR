@@ -1,6 +1,8 @@
 // src/services/aiAgent.ts
 import OpenAI from "openai";
 import { parse } from "node-html-parser";
+import { parseNumericFromText } from "../utils/parseValue";
+
 
 
 const openai = new OpenAI({
@@ -16,15 +18,21 @@ export type Proposal = {
 };
 
 export type AgentProfile =
-  | "ecommerce_price"
-  | "poll_average"
+  | "ecommerce_price"   // ecommerce: price, rating, reviews, stock
+  | "poll_average"      // polling / aggregate stats
+  | "finance_metric"    // stock/crypto/market metrics
+  | "sports_score"      // scores, odds, standings summaries
+  | "news_headline"     // key headline + sentiment-ish score
   | "generic_metric";
+
   
   
 export type NavigationPlan = {
   targetUrl: string;
   reason?: string;
+  fallbackUrls?: string[]; // additional candidates to try if primary doesn't work
 };
+
 
 type LinkCandidate = {
   id: number;
@@ -285,6 +293,127 @@ export type MultiProposal = {
   items: MultiProposalItem[];
 };
 
+function buildMultiSystemPrompt(profile: AgentProfile): string {
+  const base = `
+You are an assistant that chooses DOM elements to track on web pages.
+
+Given a user instruction and the HTML of a single page, you must choose MULTIPLE elements to track.
+
+Return an object:
+{
+  "items": [
+    {
+      "name": string,          // human-readable label, e.g. "Price", "Rating", "Review Count"
+      "selector": string,      // CSS selector that uniquely identifies that element
+      "sampleText": string,    // visible text content
+      "type": "price" | "number" | "text",
+      "valueNumeric": number | null
+    },
+    ...
+  ]
+}
+
+General rules:
+- Only include items that are clearly relevant to the user instruction.
+- Ensure each selector targets exactly one element.
+- "price" if the text looks like currency, "number" for numeric metrics, "text" otherwise.
+- valueNumeric should be parsed numeric value for "price" / "number" when possible.
+`;
+
+  if (profile === "ecommerce_price") {
+    return (
+      base +
+      `
+Profile: ecommerce_price
+Focus on the main product and related metrics. Good candidates:
+- Main product price (NOT crossed-out prices or per-installment text).
+- Aggregate rating (e.g. "4.6", "4.6 out of 5").
+- Number of reviews.
+- Clear stock/availability text (e.g. "In stock", "Out of stock").
+
+Avoid:
+- Individual review snippets.
+- Coupon codes, shipping estimates, or upsell modules.
+`
+    );
+  }
+
+  if (profile === "poll_average") {
+    return (
+      base +
+      `
+Profile: poll_average
+Focus on aggregate polling / summary statistics. Good candidates:
+- Main aggregate number (e.g. "Biden +2", "Polling average 48.1%").
+- Overall approval / disapproval percentages.
+- Clearly labeled averages or summary rows.
+
+Avoid:
+- Individual poll rows.
+- Raw tables of all polls unless one row is marked as "average".
+`
+    );
+  }
+
+  if (profile === "finance_metric") {
+    return (
+      base +
+      `
+Profile: finance_metric
+Focus on the key quote metrics for a stock/crypto/index. Good candidates:
+- Last / current price.
+- Daily % change and/or absolute change.
+- Market cap or volume if prominently displayed.
+
+Avoid:
+- Long tables of historical prices.
+- Irrelevant news headlines unless the instruction explicitly asks for them.
+`
+    );
+  }
+
+  if (profile === "sports_score") {
+    return (
+      base +
+      `
+Profile: sports_score
+Focus on the current or final score and key game summary metrics. Good candidates:
+- Current or final score (home vs away).
+- Game status (e.g. "Q3 10:24", "Final").
+- Odds / spread for the main game, if present.
+
+Avoid:
+- Standings tables for all teams unless the instruction is about standings.
+- Full box scores unless the instruction asks for detailed stats.
+`
+    );
+  }
+
+  if (profile === "news_headline") {
+    return (
+      base +
+      `
+Profile: news_headline
+Focus on the main story elements. Good candidates:
+- Main headline text.
+- Subheadline or dek line.
+- Timestamp or "Last updated" if clearly visible.
+
+Avoid:
+- Sidebar / unrelated headlines.
+- Long article body text blocks.
+`
+    );
+  }
+
+  // Fallback: generic behavior
+  return base + `
+Profile: generic_metric
+Choose the most relevant metrics or text snippets based on the user instruction. Prefer concise, high-signal values over long bodies of text.
+`;
+}
+
+
 export async function analyzePageAndProposeSelectorsMulti(params: {
   prompt: string;
   url: string;
@@ -307,33 +436,9 @@ export async function analyzePageAndProposeSelectorsMulti(params: {
 
   const truncatedHtml =
     html.length > 20000 ? html.slice(0, 20000) : html;
+    
+  const systemPrompt = buildMultiSystemPrompt(profile);
 
-  const systemPrompt = `
-You are an assistant that chooses DOM elements to track on web pages.
-
-Given a user instruction and the HTML of a single page, you must choose MULTIPLE elements to track.
-
-Return an object:
-{
-  "items": [
-    {
-      "name": string,          // human-readable label, e.g. "Price", "Rating", "Review Count"
-      "selector": string,      // CSS selector that uniquely identifies that element
-      "sampleText": string,    // visible text content
-      "type": "price" | "number" | "text",
-      "valueNumeric": number | null
-    },
-    ...
-  ]
-}
-
-Rules:
-- Only include items that are clearly relevant to the user instruction.
-- For ecommerce, good candidates: main price, rating, number of reviews, stock/availability text.
-- Ensure each selector targets exactly one element.
-
-Return ONLY a JSON object with this shape.
-`;
 
   const userPrompt = `
 User instruction:
@@ -477,43 +582,54 @@ export async function repairSelectorWithAI(params: {
 }): Promise<Proposal | null> {
   const { url, originalSelector, sampleText, fingerprint } = params;
 
+  // 1) Fetch fresh HTML
   let html: string;
   try {
     const res = await fetch(url);
     if (!res.ok) {
-      console.error(`repairSelectorWithAI: fetch failed for ${url} with status ${res.status}`);
+      console.error(
+        `repairSelectorWithAI: fetch failed for ${url} with status ${res.status}`
+      );
       return null;
     }
     html = await res.text();
   } catch (e) {
-    console.error(`repairSelectorWithAI: network/fetch error for ${url}`, e);
+    console.error(`repairSelectorWithAI: network error for ${url}`, e);
     return null;
   }
 
   const truncatedHtml =
     html.length > 20000 ? html.slice(0, 20000) : html;
 
+  // 2) System + user prompts
   const systemPrompt = `
-You are an assistant that repairs broken CSS selectors on web pages.
+You are an assistant that repairs broken CSS selectors when page HTML changes.
 
-The user previously tracked an element using an OLD selector and its text.
-The page has changed, so the old selector may no longer point to the right element.
+Given:
+- The OLD selector (which used to work on this URL).
+- Previously seen text near that element ("sampleText").
+- Optional DOM fingerprint hints (path of tags/classes).
+- The NEW HTML of the same URL.
 
 Your job:
-1. Use the OLD selector, the previously seen text ("sampleText"), and the fingerprint info (DOM path hints) as guidance.
-2. Inspect the NEW HTML and find the SINGLE element that best matches what was previously tracked.
-   - Similar visible text / price / label.
-   - Similar DOM context (if fingerprint hints are provided).
-3. Return:
-   - "selector": a NEW CSS selector that uniquely identifies that element in the NEW HTML.
-   - "sampleText": the current visible text of that element.
-   - "type": "price" | "number" | "text" (same rules as before).
-   - "valueNumeric": numeric value if applicable.
-   - "name": optional human-readable name (if you can infer it).
+1. Find the element in the NEW HTML that corresponds to the same semantic content as before
+   (e.g., the main product price, rating, etc.).
+2. Propose a NEW CSS selector for that element.
+3. Return a JSON object:
+
+{
+  "selector": string,        // new CSS selector
+  "sampleText": string,      // visible text of that element
+  "type": "price" | "number" | "text",
+  "valueNumeric": number | null,
+  "name": string | null
+}
 
 Rules:
-- If you cannot find a good match, return an empty JSON object: {}.
-- Do NOT return explanations, ONLY a JSON object.
+- If you CANNOT find a good match, return {} (empty object).
+- Prefer short, robust selectors (classes / data attributes) over brittle absolute paths.
+- "price" if it looks like a currency amount, "number" for plain numeric metrics, otherwise "text".
+- Do NOT include explanations, ONLY the JSON object.
 `;
 
   const userPrompt = `
@@ -533,6 +649,8 @@ NEW HTML (truncated):
 ${truncatedHtml}
 `;
 
+  // 3) Call the model
+  let raw: string | null = null;
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
@@ -543,38 +661,89 @@ ${truncatedHtml}
       response_format: { type: "json_object" }
     });
 
-    const raw = completion.choices[0].message.content;
-    if (!raw) {
-      console.error("repairSelectorWithAI: model returned empty content");
+    raw = completion.choices[0].message.content;
+  } catch (e) {
+    console.error("repairSelectorWithAI: OpenAI error", e);
+    return null;
+  }
+
+  if (!raw) {
+    console.error("repairSelectorWithAI: model returned empty content");
+    return null;
+  }
+
+  let data: Partial<Proposal>;
+  try {
+    data = JSON.parse(raw) as Partial<Proposal>;
+  } catch (e) {
+    console.error("repairSelectorWithAI: failed to parse JSON:", raw);
+    return null;
+  }
+
+  if (!data.selector || typeof data.selector !== "string") {
+    console.error(
+      "repairSelectorWithAI: model did not provide a selector:",
+      data
+    );
+    return null;
+  }
+
+  // 4) Validate the selector actually matches something in the NEW HTML
+  try {
+    const root = parse(html);
+    const el = root.querySelector(data.selector);
+    if (!el) {
+      console.error(
+        `repairSelectorWithAI: proposed selector "${data.selector}" matches no element`
+      );
       return null;
     }
 
-    let data: Proposal;
-    try {
-      data = JSON.parse(raw) as Proposal;
-    } catch (e) {
-      console.error("repairSelectorWithAI: failed to parse model JSON:", raw);
+    const text = (data.sampleText ?? el.textContent ?? "").trim();
+    if (!text) {
+      console.error(
+        `repairSelectorWithAI: proposed selector "${data.selector}" produced empty text`
+      );
       return null;
     }
 
-    if (!data.selector || !data.sampleText) {
-      console.error("repairSelectorWithAI: incomplete proposal:", data);
-      return null;
+    // Fill in type / numeric if missing
+    let type: "price" | "number" | "text" =
+      data.type ?? "text";
+    let numeric: number | null =
+      typeof data.valueNumeric === "number"
+        ? data.valueNumeric
+        : null;
+
+    if (!numeric) {
+      const parsedNum = parseNumericFromText(text);
+      if (typeof parsedNum === "number") {
+        numeric = parsedNum;
+        if (!data.type) {
+          // If it looks like currency, caller can still interpret as "price"
+          type = "number";
+        }
+      }
     }
 
-    return {
+    const proposal: Proposal = {
       selector: data.selector,
-      sampleText: data.sampleText,
-      type: data.type ?? "text",
-      valueNumeric:
-        typeof data.valueNumeric === "number" ? data.valueNumeric : null,
+      sampleText: text,
+      type,
+      valueNumeric: numeric,
       name: data.name
     };
+
+    return proposal;
   } catch (e) {
-    console.error("repairSelectorWithAI: OpenAI error for", url, e);
+    console.error(
+      "repairSelectorWithAI: error validating selector against HTML",
+      e
+    );
     return null;
   }
 }
+
 
 export async function planNavigationForProduct(params: {
   startUrl: string;
@@ -621,13 +790,16 @@ You are given:
   - "text": visible text or label near the link
 
 Your job:
-- Choose EXACTLY ONE candidate whose link most likely leads to the product detail page that matches the instruction.
+- Choose ONE primary candidate whose link most likely leads to the correct product detail page.
+- Optionally choose 1-3 fallback candidates in case the primary link does not have the expected content.
 - Return ONLY a JSON object:
 
 {
-  "candidateId": number,
+  "primaryId": number,
+  "fallbackIds": number[],    // optional, may be empty
   "reason": "short explanation of why this link was chosen"
 }
+
 
 Rules:
 - You MUST pick an id that exists in the provided candidates array.
@@ -675,34 +847,59 @@ ${JSON.stringify(
       return null;
     }
 
-    const parsed = JSON.parse(raw) as { candidateId?: number; reason?: string };
+    let parsed: {
+      primaryId?: number;
+      fallbackIds?: number[];
+      reason?: string;
+    };
+
+    try {
+      parsed = JSON.parse(raw) as {
+        primaryId?: number;
+        fallbackIds?: number[];
+        reason?: string;
+      };
+    } catch (e) {
+      console.error("planNavigationForProduct: failed to parse JSON:", raw);
+      return null;
+    }
 
     if (
-      typeof parsed.candidateId !== "number" ||
-      parsed.candidateId < 0
+      typeof parsed.primaryId !== "number" ||
+      parsed.primaryId < 0
     ) {
       console.error(
-        "planNavigationForProduct: model did not choose a valid candidateId:",
+        "planNavigationForProduct: model did not choose a valid primaryId:",
         parsed
       );
       return null;
     }
 
-    const candidate = candidates.find(
-      (c) => c.id === parsed.candidateId
-    );
-    if (!candidate) {
+    const primary = candidates.find((c) => c.id === parsed.primaryId);
+
+    if (!primary) {
       console.error(
-        "planNavigationForProduct: chosen candidateId not found in candidates:",
-        parsed.candidateId
+        "planNavigationForProduct: chosen primaryId not found in candidates:",
+        parsed.primaryId
       );
       return null;
     }
 
+    // Map fallbackIds -> URLs, ignoring invalid ids
+    const fallbackIds = Array.isArray(parsed.fallbackIds)
+      ? parsed.fallbackIds
+      : [];
+
+    const fallbackCandidates = fallbackIds
+      .map((id) => candidates.find((c) => c.id === id))
+      .filter((c): c is LinkCandidate => Boolean(c));
+
     return {
-      targetUrl: candidate.fullUrl,
-      reason: parsed.reason
+      targetUrl: primary.fullUrl,
+      reason: parsed.reason,
+      fallbackUrls: fallbackCandidates.map((c) => c.fullUrl)
     };
+
   } catch (e) {
     console.error("planNavigationForProduct: OpenAI error for", startUrl, e);
     return null;
@@ -760,14 +957,16 @@ You are given:
   - "text": visible text or label near the link
 
 Your job:
-- Choose EXACTLY ONE candidate that is the best "next step" toward fulfilling the instruction.
-  - This might be a category page (e.g. "Men's Joggers"), a search results page, or even the product detail page itself.
+- Choose ONE primary candidate that is the best "next step" toward fulfilling the instruction.
+- Optionally choose 1-3 fallback candidates in case the primary link is not ideal.
 - Return ONLY a JSON object:
 
 {
-  "candidateId": number,
+  "primaryId": number,
+  "fallbackIds": number[],    // optional, may be empty
   "reason": "short explanation of why this link was chosen"
 }
+
 
 Rules:
 - You MUST pick an "id" that exists in the provided candidates.
@@ -817,37 +1016,58 @@ ${JSON.stringify(
       return null;
     }
 
-    const parsed = JSON.parse(raw) as {
-      candidateId?: number;
+    let parsed: {
+      primaryId?: number;
+      fallbackIds?: number[];
       reason?: string;
     };
 
+    try {
+      parsed = JSON.parse(raw) as {
+        primaryId?: number;
+        fallbackIds?: number[];
+        reason?: string;
+      };
+    } catch (e) {
+      console.error("planNavigationForPage: failed to parse JSON:", raw);
+      return null;
+    }
+
     if (
-      typeof parsed.candidateId !== "number" ||
-      parsed.candidateId < 0
+      typeof parsed.primaryId !== "number" ||
+      parsed.primaryId < 0
     ) {
       console.error(
-        "planNavigationForPage: model did not choose a valid candidateId:",
+        "planNavigationForPage: model did not choose a valid primaryId:",
         parsed
       );
       return null;
     }
 
-    const candidate = candidates.find(
-      (c) => c.id === parsed.candidateId
-    );
-    if (!candidate) {
+    const primary = candidates.find((c) => c.id === parsed.primaryId);
+
+    if (!primary) {
       console.error(
-        "planNavigationForPage: chosen candidateId not found in candidates:",
-        parsed.candidateId
+        "planNavigationForPage: chosen primaryId not found in candidates:",
+        parsed.primaryId
       );
       return null;
     }
 
+    const fallbackIds = Array.isArray(parsed.fallbackIds)
+      ? parsed.fallbackIds
+      : [];
+
+    const fallbackCandidates = fallbackIds
+      .map((id) => candidates.find((c) => c.id === id))
+      .filter((c): c is LinkCandidate => Boolean(c));
+
     return {
-      targetUrl: candidate.fullUrl,
-      reason: parsed.reason
+      targetUrl: primary.fullUrl,
+      reason: parsed.reason,
+      fallbackUrls: fallbackCandidates.map((c) => c.fullUrl)
     };
+
   } catch (e) {
     console.error("planNavigationForPage: OpenAI error for", startUrl, e);
     return null;

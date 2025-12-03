@@ -262,7 +262,7 @@ async function processTrackedItem(id: number) {
     // 4) We got some text — parse numeric (if any) and store snapshot
     const numeric = parseNumericFromText(text);
 
-    await prisma.snapshot.create({
+    const snapshot = await prisma.snapshot.create({
       data: {
         trackedItemId: item.id,
         valueRaw: text,
@@ -274,6 +274,43 @@ async function processTrackedItem(id: number) {
     console.log(
       `Item ${item.id}: captured "${text}" (numeric=${numeric ?? "null"})`
     );
+
+    // Evaluate triggers if numeric
+    if (typeof numeric === "number") {
+      const triggers = await prisma.trigger.findMany({
+        where: { trackedItemId: item.id, active: true }
+      });
+
+      for (const trig of triggers) {
+        if (
+          trig.lastFiredAt == null &&
+          // Reuse the same semantics as meetsComparison in trackedItems.ts
+          ((trig.comparison === "lt" && numeric < trig.threshold) ||
+            (trig.comparison === "lte" && numeric <= trig.threshold) ||
+            (trig.comparison === "gt" && numeric > trig.threshold) ||
+            (trig.comparison === "gte" && numeric >= trig.threshold) ||
+            (trig.comparison === "eq" && numeric === trig.threshold) ||
+            (trig.comparison === "neq" && numeric !== trig.threshold))
+        ) {
+          await prisma.triggerEvent.create({
+            data: {
+              triggerId: trig.id,
+              snapshotId: snapshot.id
+            }
+          });
+
+          await prisma.trigger.update({
+            where: { id: trig.id },
+            data: { lastFiredAt: new Date() }
+          });
+
+          console.log(
+            `Trigger ${trig.id} fired for item ${item.id} (value=${numeric}, comparison=${trig.comparison}, threshold=${trig.threshold})`
+          );
+        }
+      }
+    }
+
   } catch (err) {
     console.error(`Error processing item ${item.id}`, err);
     await prisma.snapshot.create({

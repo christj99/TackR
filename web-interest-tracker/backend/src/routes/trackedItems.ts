@@ -61,8 +61,10 @@ export default function trackedItemsRouter(prisma: PrismaClient) {
           initialValueRaw,
           initialValueNumeric,
           fingerprint,
-          type // optional override
+          type,           // optional override
+          profile         // optional AgentProfile
         } = req.body;
+
 
 
 
@@ -78,8 +80,17 @@ export default function trackedItemsRouter(prisma: PrismaClient) {
             : inferredType;
 
         const item = await prisma.trackedItem.create({
-          data: { name, url, selector, sampleText, type: itemType, fingerprint }
+          data: {
+            name,
+            url,
+            selector,
+            sampleText,
+            type: itemType,
+            fingerprint,
+            profile: profile ?? "generic_metric"
+          }
         });
+
 
 
         // If the extension captured an initial value, create a snapshot immediately
@@ -314,7 +325,7 @@ export default function trackedItemsRouter(prisma: PrismaClient) {
     try {
       const id = Number(req.params.id);
       if (!id || Number.isNaN(id)) {
-        return res.status(400).json({ error: "invalid id" });
+        return res.status(400).json({ error: "invalid_id" });
       }
 
       const item = await prisma.trackedItem.findUnique({
@@ -329,80 +340,71 @@ export default function trackedItemsRouter(prisma: PrismaClient) {
       });
 
       if (!item) {
-        return res.status(404).json({ error: "tracked item not found" });
+        return res.status(404).json({ error: "tracked_item_not_found" });
       }
 
-      const lastGoodSnapshot = item.snapshots[0] || null;
-      const sampleText = lastGoodSnapshot?.valueRaw || item.sampleText || null;
-
-      console.log(
-        `[repair-selector] Attempting repair for item ${item.id} on ${item.url} using sampleText="${sampleText}"`
-      );
+      // Use last good snapshot as best "sampleText" if available
+      const lastOkSnapshot = item.snapshots[0];
+      const sampleText =
+        lastOkSnapshot?.valueRaw ?? item.sampleText ?? null;
 
       const proposal = await repairSelectorWithAI({
         url: item.url,
         originalSelector: item.selector,
         sampleText,
-        fingerprint: item.fingerprint // if your schema has this as Json
+        fingerprint: item.fingerprint
       });
 
       if (!proposal) {
-        return res
-          .status(422)
-          .json({ error: "no_viable_repair", message: "AI could not find a better selector" });
+        return res.status(422).json({
+          error: "repair_failed",
+          message: "AI could not produce a valid replacement selector."
+        });
       }
 
-      // Update the tracked item with the new selector and sample text
+      // Update the tracked item with the new selector & sample text
+      const now = new Date();
       const updated = await prisma.trackedItem.update({
         where: { id: item.id },
         data: {
           selector: proposal.selector,
           sampleText: proposal.sampleText,
-          type: proposal.type ?? item.type // keep existing if not provided
-          // you could also store a selector history, lastRepairAt, etc. later
+          type: proposal.type ?? item.type,
+          // reset health counters on successful repair
+          consecutiveFailures: 0,
+          lastSuccessAt: now,
+          updatedAt: now
         }
       });
 
-      // Optionally, create an immediate snapshot with the new text
-      let snapshot = null;
-      if (proposal.sampleText) {
-        const numeric =
-          proposal.valueNumeric ??
-          // fall back to your parseNumericFromText util if you like:
-          parseNumericFromText(proposal.sampleText)
-          null;
+      // Create an immediate snapshot for the repaired selector
+      const valueRaw = proposal.sampleText;
+      const valueNumeric =
+        typeof proposal.valueNumeric === "number"
+          ? proposal.valueNumeric
+          : parseNumericFromText(proposal.sampleText);
 
-         const now = new Date();
- 
+      const snapshot = await prisma.snapshot.create({
+        data: {
+          trackedItemId: updated.id,
+          valueRaw,
+          valueNumeric:
+            typeof valueNumeric === "number" ? valueNumeric : null,
+          status: "ok"
+        }
+      });
 
-        snapshot = await prisma.snapshot.create({
-          data: {
-            trackedItemId: updated.id,
-            valueRaw: proposal.sampleText,
-            valueNumeric: numeric,
-            status: "ok"
-          }
-        });
-        await prisma.trackedItem.update({
-          where: { id: updated.id },
-          data: {
-            lastSuccessAt: now,
-            consecutiveFailures: 0,
-            updatedAt: now
-          }
-        });        
-      }
-
-      res.json({
-        status: "ok",
+      return res.json({
+        status: "repaired",
         item: updated,
         snapshot
       });
     } catch (err) {
       console.error("repair-selector route error:", err);
-      res.status(500).json({ error: "internal_error" });
+      return res.status(500).json({ error: "internal_error" });
     }
   });
+
 
   router.post("/:id/failure", async (req, res) => {
     try {
@@ -441,6 +443,172 @@ export default function trackedItemsRouter(prisma: PrismaClient) {
       });
     } catch (err) {
       console.error("failure route error:", err);
+      res.status(500).json({ error: "internal_error" });
+    }
+  });
+
+  // GET /tracked-items/for-you
+  // Returns a ranked list of "interesting" tracked items based on recent activity.
+  router.get("/for-you", async (_req, res) => {
+    try {
+      const DAYS = 7; // look back window
+      const since = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
+
+      // Pull items with recent snapshots + board membership info
+      const items = await prisma.trackedItem.findMany({
+        where: {
+          isActive: true
+        },
+        include: {
+          snapshots: {
+            where: { takenAt: { gte: since } },
+            orderBy: { takenAt: "asc" }
+          },
+          boardItems: true
+        }
+      });
+
+      type ForYouItem = {
+        id: number;
+        name: string;
+        url: string;
+        type: string;
+        profile: string | null;
+        category: string | null;
+        tags: any | null;
+        latestSnapshot: {
+          id: number;
+          valueRaw: string;
+          valueNumeric: number | null;
+          status: string;
+          takenAt: string;
+        } | null;
+        metrics: {
+          snapshotCount: number;
+          changeCount: number;
+          delta: number | null;
+          deltaPct: number | null;
+          freshnessScore: number;
+          boardsCount: number;
+          score: number;
+        };
+      };
+
+      const scored: ForYouItem[] = [];
+
+      for (const item of items) {
+        const snaps = item.snapshots;
+
+        if (snaps.length === 0) {
+          // If no recent snapshots, we still might use recency of lastSuccessAt later
+          continue;
+        }
+
+        const first = snaps[0];
+        const latest = snaps[snaps.length - 1];
+
+        const numericSeries = snaps
+          .map((s) => s.valueNumeric)
+          .filter((v): v is number => typeof v === "number");
+
+        const snapshotCount = snaps.length;
+        let changeCount = 0;
+
+        // Count how many times the numeric value changed
+        if (numericSeries.length > 1) {
+          let prev = numericSeries[0];
+          for (let i = 1; i < numericSeries.length; i++) {
+            const v = numericSeries[i];
+            if (v !== prev) {
+              changeCount++;
+              prev = v;
+            }
+          }
+        }
+
+        let delta: number | null = null;
+        let deltaPct: number | null = null;
+
+        if (
+          typeof first.valueNumeric === "number" &&
+          typeof latest.valueNumeric === "number"
+        ) {
+          delta = latest.valueNumeric - first.valueNumeric;
+          if (Math.abs(first.valueNumeric) > 1e-9) {
+            deltaPct = delta / Math.abs(first.valueNumeric);
+          }
+        }
+
+        // Freshness: how recent is the latest snapshot? (0–1, 1 = freshest)
+        const now = Date.now();
+        const latestTs = new Date(latest.takenAt).getTime();
+        const ageMs = now - latestTs;
+        const windowMs = DAYS * 24 * 60 * 60 * 1000;
+        const freshnessScore = Math.max(
+          0,
+          1 - ageMs / windowMs
+        );
+
+        const boardsCount = item.boardItems.length;
+
+        // Simple scoring heuristic:
+        // - more changes -> more interesting
+        // - bigger pct move -> more interesting
+        // - more recent -> more interesting
+        // - appearing on more boards -> more important
+        const changeScore = Math.min(changeCount, 10) / 10; // 0–1
+        const deltaScore =
+          deltaPct != null ? Math.min(Math.abs(deltaPct), 1.0) : 0;
+
+        const score =
+          0.4 * changeScore +
+          0.3 * deltaScore +
+          0.2 * freshnessScore +
+          0.1 * Math.min(boardsCount, 3) / 3;
+
+        scored.push({
+          id: item.id,
+          name: item.name,
+          url: item.url,
+          type: item.type,
+          profile: item.profile ?? null,
+          category: (item as any).category ?? null,
+          tags: (item as any).tags ?? null,
+          latestSnapshot: latest
+            ? {
+                id: latest.id,
+                valueRaw: latest.valueRaw,
+                valueNumeric: latest.valueNumeric,
+                status: latest.status,
+                takenAt: latest.takenAt.toISOString
+                  ? latest.takenAt.toISOString()
+                  : new Date(latest.takenAt as any).toISOString()
+              }
+            : null,
+          metrics: {
+            snapshotCount,
+            changeCount,
+            delta,
+            deltaPct,
+            freshnessScore,
+            boardsCount,
+            score
+          }
+        });
+      }
+
+      // Sort by score descending and take top N
+      const TOP_N = 20;
+      scored.sort((a, b) => b.metrics.score - a.metrics.score);
+      const top = scored.slice(0, TOP_N);
+
+      res.json({
+        windowDays: DAYS,
+        count: top.length,
+        items: top
+      });
+    } catch (err) {
+      console.error("GET /tracked-items/for-you error:", err);
       res.status(500).json({ error: "internal_error" });
     }
   });
