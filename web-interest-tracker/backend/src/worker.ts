@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 import { PrismaClient, TrackedItem } from "@prisma/client";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+//import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { load } from "cheerio";
 import { chromium, Browser } from "playwright";
 import { parseNumericFromText } from "./utils/parseValue";
@@ -87,11 +87,11 @@ async function tryFingerprintFallback(
 }
 
 
-const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL || "file:./prisma/dev.db",
-});
+//const adapter = new PrismaBetterSqlite3({
+  //url: process.env.DATABASE_URL || "file:./prisma/dev.db",
+//});
 
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient();
 
 const ENABLE_DYNAMIC =
   (process.env.ENABLE_DYNAMIC_SCRAPE || "true").toLowerCase() !== "false";

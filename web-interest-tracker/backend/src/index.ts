@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import { PrismaClient } from "@prisma/client";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+//import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import trackedItemsRouter from "./routes/trackedItems";
 import agentRouter from "./routes/agent";
 import boardsRouter from "./routes/boards";
@@ -17,11 +17,11 @@ import merchantRulesRouter from "./routes/merchantRules";
 
 dotenv.config();
 
-const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL || "file:./prisma/dev.db",
-});
+//const adapter = new PrismaBetterSqlite3({
+  //url: process.env.DATABASE_URL || "file:./prisma/dev.db",
+//});
 
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -44,10 +44,6 @@ app.use("/boards", boardsRouter(prisma));
 app.use("/discover", discoverRouter(prisma));
 app.use("/cart", cartRouter(prisma));
 app.use("/merchant-rules", merchantRulesRouter(prisma));
-
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
-});
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
