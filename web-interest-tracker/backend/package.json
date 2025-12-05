@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.0.1",
-    "@prisma/client": "^7.0.1",
+    "@prisma/adapter-pg": "^7.1.0",
+    "@prisma/client": "^7.1.0",
     "better-sqlite3": "^12.5.0",
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
