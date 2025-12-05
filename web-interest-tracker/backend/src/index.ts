@@ -30,24 +30,18 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "..", "public")));
 
-
 app.use("/tracked-items", trackedItemsRouter(prisma));
-
 app.use("/agent", agentRouter(prisma));
-
-app.use(express.json());
-app.use(express.static(path.join(__dirname, "..", "public")));
-
-app.use("/triggers", triggersRouter(prisma));
-app.use("/tracked-items", trackedItemsRouter(prisma));
 app.use("/boards", boardsRouter(prisma));
 app.use("/discover", discoverRouter(prisma));
 app.use("/cart", cartRouter(prisma));
+app.use("/triggers", triggersRouter(prisma));
 app.use("/merchant-rules", merchantRulesRouter(prisma));
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
 
 
 app.listen(PORT, () => {
