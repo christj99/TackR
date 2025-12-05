@@ -199,8 +199,8 @@ export default function discoverRouter(prisma: PrismaClient) {
         const latest = snaps[snaps.length - 1];
 
         const numericSeries = snaps
-          .map((s) => s.valueNumeric)
-          .filter((v): v is number => typeof v === "number");
+          .map((s: any) => s.valueNumeric)
+          .filter((v: any): v is number => typeof v === "number");
 
         const snapshotCount = snaps.length;
         let changeCount = 0;
