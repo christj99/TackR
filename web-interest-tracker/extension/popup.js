@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:4000";
+const API_BASE = "https://tackr-production.up.railway.app";
 
 const selectBtn = document.getElementById("selectBtn");
 const refreshBtn = document.getElementById("refreshBtn");
