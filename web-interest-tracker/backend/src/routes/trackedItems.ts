@@ -451,105 +451,38 @@ export default function trackedItemsRouter(prisma: PrismaClient) {
   // Returns a ranked list of "interesting" tracked items based on recent activity.
   router.get("/for-you", async (_req, res) => {
     try {
-      const DAYS = 7; // look back window
+      const DAYS = 7;
       const since = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
 
-      // Pull active items with recent snapshots + board membership
+      // Very simple: get active items with snapshots in the last N days
       const items = await prisma.trackedItem.findMany({
         where: {
           isActive: true,
+          snapshots: {
+            some: {
+              takenAt: { gte: since },
+            },
+          },
         },
         include: {
           snapshots: {
-            where: { takenAt: { gte: since } },
-            orderBy: { takenAt: "asc" },
+            orderBy: { takenAt: "desc" }, // latest first
           },
-          boardItems: true,
         },
       });
 
-      type ScoredItem = {
-        id: number;
-        name: string;
-        url: string;
-        type: string;
-        profile: string | null;
-        category: string | null;
-        tags: string[] | null;
-        latestSnapshot: {
-          id: number;
-          valueRaw: string;
-          valueNumeric: number | null;
-          status: string;
-          takenAt: string;
-        } | null;
-        metrics: {
-          snapshotCount: number;
-          changeCount: number;
-          delta: number | null;
-          deltaPct: number | null;
-          freshnessScore: number;
-          boardsCount: number;
-          score: number;
-        };
-      };
-
-      const scored: ScoredItem[] = [];
-
-      for (const item of items) {
+      const result = items.map((item) => {
         const snaps = item.snapshots ?? [];
-        if (snaps.length === 0) continue;
+        const latest = snaps[0];
 
-        const first = snaps[0];
-        const latest = snaps[snaps.length - 1];
-
-        // Collect numeric values safely
-        const numericValues = snaps
-          .map((s) =>
-            typeof s.valueNumeric === "number" ? s.valueNumeric : null
-          )
-          .filter((v): v is number => v !== null);
-
+        // Super defensive: if for some reason no snapshots, skip metrics
         const snapshotCount = snaps.length;
-        const changeCount =
-          numericValues.length > 1
-            ? numericValues.filter((v, idx, arr) => idx > 0 && v !== arr[idx - 1])
-                .length
-            : 0;
+        const latestNumeric =
+          latest && typeof latest.valueNumeric === "number"
+            ? latest.valueNumeric
+            : null;
 
-        let delta: number | null = null;
-        let deltaPct: number | null = null;
-
-        if (
-          typeof first.valueNumeric === "number" &&
-          typeof latest.valueNumeric === "number"
-        ) {
-          delta = latest.valueNumeric - first.valueNumeric;
-          if (Math.abs(first.valueNumeric) > 1e-9) {
-            deltaPct = delta / Math.abs(first.valueNumeric);
-          }
-        }
-
-        // Freshness: how recent is the latest snapshot? (0–1, 1 = freshest)
-        const nowMs = Date.now();
-        const latestMs = new Date(latest.takenAt as any).getTime();
-        const windowMs = DAYS * 24 * 60 * 60 * 1000;
-        const freshnessScore = Math.max(0, 1 - (nowMs - latestMs) / windowMs);
-
-        const boardsCount = item.boardItems?.length ?? 0;
-
-        // Simple scoring heuristic:
-        const changeScore = Math.min(changeCount / 5, 1);
-        const deltaScore =
-          deltaPct != null ? Math.min(Math.abs(deltaPct), 1) : 0;
-
-        const score =
-          0.4 * changeScore +
-          0.3 * deltaScore +
-          0.2 * freshnessScore +
-          0.1 * Math.min(boardsCount, 3) / 3;
-
-        scored.push({
+        return {
           id: item.id,
           name: item.name,
           url: item.url,
@@ -557,40 +490,49 @@ export default function trackedItemsRouter(prisma: PrismaClient) {
           profile: item.profile ?? null,
           category: (item as any).category ?? null,
           tags: (item as any).tags ?? null,
-          latestSnapshot: {
-            id: latest.id,
-            valueRaw: latest.valueRaw,
-            valueNumeric: latest.valueNumeric,
-            status: latest.status,
-            takenAt: new Date(latest.takenAt as any).toISOString(),
-          },
+          latestSnapshot: latest
+            ? {
+              id: latest.id,
+              valueRaw: latest.valueRaw,
+              valueNumeric: latestNumeric,
+              status: latest.status,
+              takenAt: new Date(latest.takenAt as any).toISOString(),
+            }
+            : null,
           metrics: {
             snapshotCount,
-            changeCount,
-            delta,
-            deltaPct,
-            freshnessScore,
-            boardsCount,
-            score,
+            changeCount: 0,
+            delta: null,
+            deltaPct: null,
+            freshnessScore: 1,
+            boardsCount: 0,
+            score: 1,
           },
-        });
-      }
+        };
+      });
 
-      // Sort by score descending and cap at top N
-      const TOP_N = 50;
-      scored.sort((a, b) => b.metrics.score - a.metrics.score);
-      const top = scored.slice(0, TOP_N);
+      // Sort by most recently updated
+      result.sort((a, b) => {
+        const ta = a.latestSnapshot
+          ? new Date(a.latestSnapshot.takenAt).getTime()
+          : 0;
+        const tb = b.latestSnapshot
+          ? new Date(b.latestSnapshot.takenAt).getTime()
+          : 0;
+        return tb - ta;
+      });
 
       res.json({
         windowDays: DAYS,
-        count: top.length,
-        items: top,
+        count: result.length,
+        items: result,
       });
     } catch (err) {
       console.error("GET /tracked-items/for-you error:", err);
       res.status(500).json({ error: "internal_error" });
     }
   });
+
 
 
   return router;
