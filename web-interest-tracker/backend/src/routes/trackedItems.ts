@@ -449,89 +449,19 @@ export default function trackedItemsRouter(prisma: PrismaClient) {
 
   // GET /tracked-items/for-you
   // Returns a ranked list of "interesting" tracked items based on recent activity.
-  router.get("/for-you", async (_req, res) => {
-    try {
-      const DAYS = 7;
-      const since = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
+router.get("/for-you", async (_req, res) => {
+  try {
+    res.json({
+      windowDays: 7,
+      count: 0,
+      items: [],
+    });
+  } catch (err) {
+    console.error("GET /tracked-items/for-you error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
 
-      // Very simple: get active items with snapshots in the last N days
-      const items = await prisma.trackedItem.findMany({
-        where: {
-          isActive: true,
-          snapshots: {
-            some: {
-              takenAt: { gte: since },
-            },
-          },
-        },
-        include: {
-          snapshots: {
-            orderBy: { takenAt: "desc" }, // latest first
-          },
-        },
-      });
-
-      const result = items.map((item) => {
-        const snaps = item.snapshots ?? [];
-        const latest = snaps[0];
-
-        // Super defensive: if for some reason no snapshots, skip metrics
-        const snapshotCount = snaps.length;
-        const latestNumeric =
-          latest && typeof latest.valueNumeric === "number"
-            ? latest.valueNumeric
-            : null;
-
-        return {
-          id: item.id,
-          name: item.name,
-          url: item.url,
-          type: item.type,
-          profile: item.profile ?? null,
-          category: (item as any).category ?? null,
-          tags: (item as any).tags ?? null,
-          latestSnapshot: latest
-            ? {
-              id: latest.id,
-              valueRaw: latest.valueRaw,
-              valueNumeric: latestNumeric,
-              status: latest.status,
-              takenAt: new Date(latest.takenAt as any).toISOString(),
-            }
-            : null,
-          metrics: {
-            snapshotCount,
-            changeCount: 0,
-            delta: null,
-            deltaPct: null,
-            freshnessScore: 1,
-            boardsCount: 0,
-            score: 1,
-          },
-        };
-      });
-
-      // Sort by most recently updated
-      result.sort((a, b) => {
-        const ta = a.latestSnapshot
-          ? new Date(a.latestSnapshot.takenAt).getTime()
-          : 0;
-        const tb = b.latestSnapshot
-          ? new Date(b.latestSnapshot.takenAt).getTime()
-          : 0;
-        return tb - ta;
-      });
-
-      res.json({
-        windowDays: DAYS,
-        count: result.length,
-        items: result,
-      });
-    } catch (err) {
-      console.error("GET /tracked-items/for-you error:", err);
-      res.status(500).json({ error: "internal_error" });
-    }
-  });
 
 
 
