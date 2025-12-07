@@ -14,16 +14,19 @@ export function ForYou() {
   async function loadForYou() {
     try {
       setLoading(true);
-      const data = await api.get("/tracked-items/for-you");
-      setItems(data.items || []);
+      // Use discover's recommendedItems as the "For You" feed
+      const data = await api.get("/discover");
+      setItems(data.recommendedItems || []);
       setWindowDays(data.windowDays || 7);
       setError("");
     } catch (e) {
+      console.error("Failed to load For You items:", e);
       setError(e.message || "Failed to load For You items");
     } finally {
       setLoading(false);
     }
   }
+
 
   return (
     <div className="page">
