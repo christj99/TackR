@@ -83,6 +83,37 @@ export function Boards({ selectedBoardId, onSelectBoard }) {
     }
   }
 
+  async function handleAddToCart(trackedItemId) {
+    try {
+      setError("");
+
+      // 1) Get existing carts
+      let carts = [];
+      try {
+        carts = await api.get("/cart");
+      } catch (e) {
+        // if this fails, we’ll just try to create a new cart
+        console.error("Failed to load carts when adding to cart:", e);
+      }
+
+      let cartId = carts[0]?.id;
+
+      // 2) If no cart yet, create a default one
+      if (!cartId) {
+        const cart = await api.post("/cart", { name: "My Cart" });
+        cartId = cart.id;
+      }
+
+      // 3) Add this tracked item to the cart
+      await api.post(`/cart/${cartId}/items`, { trackedItemId });
+
+      // (Optional) you could set some “added” UI state here later
+    } catch (e) {
+      console.error("Failed to add item to cart:", e);
+      setError(e.message || "Failed to add item to cart");
+    }
+  }
+
 
   return (
     <div className="page">
@@ -137,6 +168,7 @@ export function Boards({ selectedBoardId, onSelectBoard }) {
               boards={boards}
               onRemoveItem={handleRemoveItem}
               onAddItemToBoard={handleAddItemToBoard}
+              onAddToCart={handleAddToCart}
             />
           )}
         </div>
@@ -145,7 +177,13 @@ export function Boards({ selectedBoardId, onSelectBoard }) {
   );
 }
 
-function BoardDetail({ board, boards, onRemoveItem, onAddItemToBoard }) {
+function BoardDetail({
+  board,
+  boards,
+  onRemoveItem,
+  onAddItemToBoard,
+  onAddToCart,
+}) {
   return (
     <div>
       <h3>{board.name}</h3>
@@ -194,7 +232,6 @@ function BoardDetail({ board, boards, onRemoveItem, onAddItemToBoard }) {
                           const targetId = Number(e.target.value);
                           if (!targetId) return;
                           onAddItemToBoard(targetId, ti.id);
-                          // reset dropdown
                           e.target.value = "";
                         }}
                       >
@@ -208,6 +245,15 @@ function BoardDetail({ board, boards, onRemoveItem, onAddItemToBoard }) {
                           ))}
                       </select>
                     )}
+
+                    {/* Add to Cart */}
+                    <button
+                      type="button"
+                      onClick={() => onAddToCart(ti.id)}
+                      style={{ marginLeft: "0.5rem" }}
+                    >
+                      Add to Cart
+                    </button>
                   </td>
                 </tr>
               );
