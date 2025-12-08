@@ -50,70 +50,104 @@ function inferItemType(
 export default function trackedItemsRouter(prisma: PrismaClient) {
   const router = Router();
 
-  // POST /tracked-items
-    router.post("/", async (req, res) => {
+    // POST /tracked-items
+  router.post("/", async (req, res) => {
     try {
-        const {
+      const {
+        name,
+        url,
+        selector,
+        sampleText,
+        initialValueRaw,
+        initialValueNumeric,
+        fingerprint,
+        type,           // optional override: "price" | "number" | "text"
+        profile         // optional AgentProfile
+      } = req.body || {};
+
+      if (!name || !url || !selector) {
+        return res.status(400).json({ error: "missing_required_fields" });
+      }
+
+      // Decide the type: explicit > inferred
+      const inferredType = inferItemType(sampleText, initialValueNumeric);
+      const itemType: "price" | "number" | "text" =
+        type === "price" || type === "number" || type === "text"
+          ? type
+          : inferredType;
+
+      // Create the tracked item
+      const item = await prisma.trackedItem.create({
+        data: {
           name,
           url,
           selector,
           sampleText,
-          initialValueRaw,
-          initialValueNumeric,
+          type: itemType,
           fingerprint,
-          type,           // optional override
-          profile         // optional AgentProfile
-        } = req.body;
+          profile: profile ?? "generic_metric",
+        },
+      });
 
-
-
-
-        if (!name || !url || !selector) {
-        return res.status(400).json({ error: "name, url, selector required" });
-        }
-
-        // Decide the type: explicit > inferred
-        const inferredType = inferItemType(sampleText, initialValueNumeric);
-        const itemType: "price" | "number" | "text" =
-        type === "price" || type === "number" || type === "text"
-            ? type
-            : inferredType;
-
-        const item = await prisma.trackedItem.create({
-          data: {
-            name,
-            url,
-            selector,
-            sampleText,
-            type: itemType,
-            fingerprint,
-            profile: profile ?? "generic_metric"
-          }
-        });
-
-
-
-        // If the extension captured an initial value, create a snapshot immediately
-        if (typeof initialValueRaw === "string") {
+      // If the extension captured an initial value, create a snapshot immediately
+      if (typeof initialValueRaw === "string") {
         await prisma.snapshot.create({
-            data: {
+          data: {
             trackedItemId: item.id,
             valueRaw: initialValueRaw,
             valueNumeric:
-                typeof initialValueNumeric === "number"
+              typeof initialValueNumeric === "number"
                 ? initialValueNumeric
                 : null,
-            status: "ok"
-            }
+            status: "ok",
+          },
         });
-        }
+      }
 
-        res.status(201).json(item);
+      // 🔹 M: attach new items to a default board ("My Items")
+
+      const DEFAULT_BOARD_NAME = "My Items";
+
+      // Find or create the default board
+      let board = await prisma.board.findFirst({
+        where: { name: DEFAULT_BOARD_NAME },
+      });
+
+      if (!board) {
+        board = await prisma.board.create({
+          data: {
+            name: DEFAULT_BOARD_NAME,
+            description: "Default board for all tracked items",
+            filters: null,
+          },
+        });
+      }
+
+      // Create BoardItem mapping (ignore if it already exists)
+      try {
+        await prisma.boardItem.create({
+          data: {
+            boardId: board.id,
+            trackedItemId: item.id,
+          },
+        });
+      } catch (err: any) {
+        // Unique constraint (boardId, trackedItemId) – safe to ignore
+        if (err?.code !== "P2002") {
+          console.error(
+            "Failed to create BoardItem for new tracked item:",
+            err
+          );
+        }
+      }
+
+      res.status(201).json(item);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "internal_error" });
+      console.error(err);
+      res.status(500).json({ error: "internal_error" });
     }
-    });
+  });
+
 
 
 
