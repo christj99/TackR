@@ -1,6 +1,6 @@
 import React from "react";
 
-export function Sidebar({ activePage, onNavigate, pages }) {
+export function Sidebar({ activePage, onNavigate, pages, cartCount }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -9,17 +9,24 @@ export function Sidebar({ activePage, onNavigate, pages }) {
       </div>
 
       <nav className="sidebar-nav">
-        {Object.entries(pages).map(([key, label]) => (
-          <button
-            key={key}
-            className={
-              "nav-item" + (activePage === key ? " nav-item-active" : "")
-            }
-            onClick={() => onNavigate(key)}
-          >
-            {label}
-          </button>
-        ))}
+        {Object.entries(pages).map(([key, label]) => {
+          const isCart = key === "cart";
+
+          return (
+            <button
+              key={key}
+              className={
+                "nav-item" + (activePage === key ? " nav-item-active" : "")
+              }
+              onClick={() => onNavigate(key)}
+            >
+              <span>{label}</span>
+              {isCart && cartCount > 0 && (
+                <span className="cart-badge">{cartCount}</span>
+              )}
+            </button>
+          );
+        })}
       </nav>
     </aside>
   );
