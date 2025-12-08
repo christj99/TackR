@@ -23,6 +23,35 @@ export function Discover() {
     }
   }
 
+  async function handleAddToCart(trackedItemId) {
+    try {
+      setError("");
+
+      // 1) Get existing carts
+      let carts = [];
+      try {
+        carts = await api.get("/cart");
+      } catch (e) {
+        console.error("Failed to load carts when adding to cart:", e);
+      }
+
+      let cartId = carts[0]?.id;
+
+      // 2) If no cart, create a default one
+      if (!cartId) {
+        const cart = await api.post("/cart", { name: "My Cart" });
+        cartId = cart.id;
+      }
+
+      // 3) Add this tracked item to that cart
+      await api.post(`/cart/${cartId}/items`, { trackedItemId });
+    } catch (e) {
+      console.error("Failed to add item to cart:", e);
+      setError(e.message || "Failed to add item to cart");
+    }
+  }
+
+
   if (loading) {
     return (
       <div className="page">
@@ -87,13 +116,13 @@ export function Discover() {
       <section>
         <h3>Worth Pinning</h3>
         {recommendedItems.length === 0 ? (
-          <div className="muted">No recommendations yet.</div>
+          <div>No strong recommendations yet.</div>
         ) : (
           <div className="card-list">
             {recommendedItems.map((item) => (
               <div key={item.id} className="card">
                 <h3>{item.name}</h3>
-                <div className="muted">{item.domain}</div>
+                <div className="muted">{item.url}</div>
                 <div className="metric-row">
                   <span>
                     Latest:{" "}
@@ -112,6 +141,15 @@ export function Discover() {
                     </span>
                   )}
                 </div>
+
+                {/* P: Add to Cart from Discover */}
+                <button
+                  type="button"
+                  onClick={() => handleAddToCart(item.id)}
+                  style={{ marginTop: "0.5rem" }}
+                >
+                  Add to Cart
+                </button>
               </div>
             ))}
           </div>

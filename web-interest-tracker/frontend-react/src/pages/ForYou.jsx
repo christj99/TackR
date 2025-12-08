@@ -26,6 +26,34 @@ export function ForYou() {
       setLoading(false);
     }
   }
+  
+  async function handleAddToCart(trackedItemId) {
+    try {
+      setError("");
+
+      // 1) Get existing carts
+      let carts = [];
+      try {
+        carts = await api.get("/cart");
+      } catch (e) {
+        console.error("Failed to load carts when adding to cart:", e);
+      }
+
+      let cartId = carts[0]?.id;
+
+      // 2) If no cart, create a default one
+      if (!cartId) {
+        const cart = await api.post("/cart", { name: "My Cart" });
+        cartId = cart.id;
+      }
+
+      // 3) Add this tracked item to that cart
+      await api.post(`/cart/${cartId}/items`, { trackedItemId });
+    } catch (e) {
+      console.error("Failed to add item to cart:", e);
+      setError(e.message || "Failed to add item to cart");
+    }
+  }
 
 
   return (
@@ -70,6 +98,15 @@ export function ForYou() {
                 {item.metrics.changeCount} changes ·{" "}
                 {item.metrics.snapshotCount} snapshots
               </div>
+
+              {/* P: Add to Cart from For You */}
+              <button
+                type="button"
+                onClick={() => handleAddToCart(item.id)}
+                style={{ marginTop: "0.5rem" }}
+              >
+                Add to Cart
+              </button>
             </div>
           ))}
         </div>
