@@ -61,6 +61,29 @@ export function Boards({ selectedBoardId, onSelectBoard }) {
     }
   }
 
+  async function handleRemoveItem(boardId, trackedItemId) {
+    try {
+      await api.del(`/boards/${boardId}/items/${trackedItemId}`);
+      // Refresh detail + sidebar counts
+      await loadBoardDetail(boardId);
+      await loadBoards();
+    } catch (e) {
+      setError(e.message || "Failed to remove item from board");
+    }
+  }
+
+  async function handleAddItemToBoard(boardId, trackedItemId) {
+    try {
+      await api.post(`/boards/${boardId}/items`, { trackedItemId });
+      // Refresh detail + sidebar counts (in case we’re viewing the target board)
+      await loadBoardDetail(boardId);
+      await loadBoards();
+    } catch (e) {
+      setError(e.message || "Failed to add item to board");
+    }
+  }
+
+
   return (
     <div className="page">
       <div className="page-header">
@@ -109,7 +132,12 @@ export function Boards({ selectedBoardId, onSelectBoard }) {
           ) : !boardDetail ? (
             <div>Loading board...</div>
           ) : (
-            <BoardDetail board={boardDetail} />
+            <BoardDetail
+              board={boardDetail}
+              boards={boards}
+              onRemoveItem={handleRemoveItem}
+              onAddItemToBoard={handleAddItemToBoard}
+            />
           )}
         </div>
       </div>
@@ -117,7 +145,7 @@ export function Boards({ selectedBoardId, onSelectBoard }) {
   );
 }
 
-function BoardDetail({ board }) {
+function BoardDetail({ board, boards, onRemoveItem, onAddItemToBoard }) {
   return (
     <div>
       <h3>{board.name}</h3>
@@ -131,12 +159,14 @@ function BoardDetail({ board }) {
               <th>Latest Value</th>
               <th>Profile</th>
               <th>Last Success</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {board.items.map((bi) => {
               const ti = bi.trackedItem;
               const snap = ti.snapshots[0];
+
               return (
                 <tr key={bi.id}>
                   <td>{ti.name}</td>
@@ -147,6 +177,38 @@ function BoardDetail({ board }) {
                       ? new Date(ti.lastSuccessAt).toLocaleString()
                       : "—"}
                   </td>
+                  <td>
+                    {/* Remove from this board */}
+                    <button
+                      type="button"
+                      onClick={() => onRemoveItem(board.id, ti.id)}
+                    >
+                      Remove
+                    </button>
+
+                    {/* Move / add to another board */}
+                    {boards && boards.length > 1 && (
+                      <select
+                        defaultValue=""
+                        onChange={(e) => {
+                          const targetId = Number(e.target.value);
+                          if (!targetId) return;
+                          onAddItemToBoard(targetId, ti.id);
+                          // reset dropdown
+                          e.target.value = "";
+                        }}
+                      >
+                        <option value="">Move to…</option>
+                        {boards
+                          .filter((b) => b.id !== board.id)
+                          .map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name}
+                            </option>
+                          ))}
+                      </select>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -156,3 +218,4 @@ function BoardDetail({ board }) {
     </div>
   );
 }
+
