@@ -118,7 +118,7 @@ export default function trackedItemsRouter(prisma: PrismaClient) {
           data: {
             name: DEFAULT_BOARD_NAME,
             description: "Default board for all tracked items",
-            filters: null,
+            // filters omitted → stays null by default
           },
         });
       }
