@@ -72,16 +72,29 @@ export function Boards({ selectedBoardId, onSelectBoard }) {
     }
   }
 
-  async function handleAddItemToBoard(boardId, trackedItemId) {
+  async function handleAddToCart(trackedItemId) {
     try {
-      await api.post(`/boards/${boardId}/items`, { trackedItemId });
-      // Refresh detail + sidebar counts (in case we’re viewing the target board)
-      await loadBoardDetail(boardId);
-      await loadBoards();
+      setError("");
+
+      let carts = await api.get("/cart");
+      let cartId = carts[0]?.id;
+
+      if (!cartId) {
+        const cart = await api.post("/cart", { name: "My Cart" });
+        cartId = cart.id;
+      }
+
+      await api.post(`/cart/${cartId}/items`, { trackedItemId });
+
+      // notify App.jsx
+      if (onCartUpdated) onCartUpdated();
+
     } catch (e) {
-      setError(e.message || "Failed to add item to board");
+      console.error(e);
+      setError("Failed to add item to cart");
     }
   }
+
 
   async function handleAddToCart(trackedItemId) {
     try {

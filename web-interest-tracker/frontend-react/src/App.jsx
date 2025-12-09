@@ -27,31 +27,6 @@ export default function App() {
   const [selectedBoardId, setSelectedBoardId] = useState(null);
   const [cartCount, setCartCount] = useState(0);
 
-
-  const renderPage = () => {
-    switch (page) {
-      case "boards":
-        return (
-          <Boards
-            selectedBoardId={selectedBoardId}
-            onSelectBoard={setSelectedBoardId}
-          />
-        );
-      case "forYou":
-        return <ForYou />;
-      case "discover":
-        return <Discover />;
-      case "cart":
-        return <Cart />;
-      case "checkout":
-        return <Checkout />;
-      case "promptTrack":
-        return <PromptTrack />;
-      default:
-        return <Boards />;
-    }
-  };
-
     async function refreshCartCount() {
     try {
       // GET /cart returns a list of carts with cartItems
@@ -76,6 +51,30 @@ export default function App() {
       setCartCount(0);
     }
   }
+
+  const handleCartUpdated = () => {
+      refreshCartCount();     // refreshes instantly
+    };
+
+    function renderPage() {
+    switch (page) {
+      case "boards":
+        return <Boards onCartUpdated={handleCartUpdated} />;
+      case "discover":
+        return <Discover onCartUpdated={handleCartUpdated} />;
+      case "foryou":
+        return <ForYou onCartUpdated={handleCartUpdated} />;
+      case "cart":
+        return <Cart onCartUpdated={handleCartUpdated} />;
+      case "checkout":
+        return <Checkout onCartUpdated={handleCartUpdated} />;
+      case "prompttrack":
+        return <PromptTrack onCartUpdated={handleCartUpdated} />;
+      default:
+        return <Boards onCartUpdated={handleCartUpdated} />;
+    }
+  }
+  
 
     useEffect(() => {
     refreshCartCount();

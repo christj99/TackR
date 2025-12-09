@@ -31,29 +31,25 @@ export function ForYou() {
     try {
       setError("");
 
-      // 1) Get existing carts
-      let carts = [];
-      try {
-        carts = await api.get("/cart");
-      } catch (e) {
-        console.error("Failed to load carts when adding to cart:", e);
-      }
-
+      let carts = await api.get("/cart");
       let cartId = carts[0]?.id;
 
-      // 2) If no cart, create a default one
       if (!cartId) {
         const cart = await api.post("/cart", { name: "My Cart" });
         cartId = cart.id;
       }
 
-      // 3) Add this tracked item to that cart
       await api.post(`/cart/${cartId}/items`, { trackedItemId });
+
+      // notify App.jsx
+      if (onCartUpdated) onCartUpdated();
+
     } catch (e) {
-      console.error("Failed to add item to cart:", e);
-      setError(e.message || "Failed to add item to cart");
+      console.error(e);
+      setError("Failed to add item to cart");
     }
   }
+
 
 
   return (
