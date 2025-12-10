@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api/client.js";
+import { Sparkline } from "../components/Sparkline.jsx";
+
 
 export function Discover() {
   const [data, setData] = useState(null);
@@ -119,24 +121,30 @@ export function Discover() {
               <div key={item.id} className="card">
                 <h3>{item.name}</h3>
                 <div className="muted">{item.url}</div>
-                <div className="metric-row">
-                  <span>
-                    Latest:{" "}
-                    <strong>{item.latestSnapshot?.valueRaw ?? "—"}</strong>
+              <div className="metric-row">
+                <span>
+                  Latest:{" "}
+                  <strong>{item.latestSnapshot?.valueRaw ?? "—"}</strong>
+                </span>
+                {item.metrics.deltaPct != null && (
+                  <span
+                    className={
+                      "chip " +
+                      (item.metrics.deltaPct < 0
+                        ? "chip-down"
+                        : "chip-up")
+                    }
+                  >
+                    {(item.metrics.deltaPct * 100).toFixed(1)}%
                   </span>
-                  {item.metrics.deltaPct != null && (
-                    <span
-                      className={
-                        "chip " +
-                        (item.metrics.deltaPct < 0
-                          ? "chip-down"
-                          : "chip-up")
-                      }
-                    >
-                      {(item.metrics.deltaPct * 100).toFixed(1)}%
-                    </span>
-                  )}
-                </div>
+                )}
+              </div>
+
+              {/* Mini sparkline */}
+              {item.sparkline?.points && item.sparkline.points.length >= 2 && (
+                <Sparkline points={item.sparkline.points} />
+              )}
+
 
                 {/* P: Add to Cart from Discover */}
                 <button

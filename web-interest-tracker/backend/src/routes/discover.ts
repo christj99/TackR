@@ -276,6 +276,26 @@ export default function discoverRouter(prisma: PrismaClient) {
         // 5) Apply additional time-decay: very stale items get dampened
         const score = baseScore * (0.6 + 0.4 * freshnessScore);
 
+        // Build sparkline points from recent numeric snapshots
+        const numericSnaps = snaps.filter(
+          (s) => typeof s.valueNumeric === "number"
+        );
+
+        const maxPoints = 20;
+        const recentNumeric = numericSnaps.slice(
+          Math.max(0, numericSnaps.length - maxPoints)
+        );
+
+        const sparkPoints =
+          recentNumeric.length >= 2
+            ? recentNumeric.map((s) => ({
+                t: s.takenAt.toISOString
+                  ? s.takenAt.toISOString()
+                  : new Date(s.takenAt as any).toISOString(),
+                v: s.valueNumeric as number
+              }))
+            : [];
+
 
         if (score <= 0) continue;
 
@@ -306,6 +326,9 @@ export default function discoverRouter(prisma: PrismaClient) {
             deltaPct,
             freshnessScore,
             score
+          },
+          sparkline: {
+            points: sparkPoints
           }
         });
       }

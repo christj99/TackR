@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api/client.js";
+import { Sparkline } from "../components/Sparkline.jsx";
+
 
 export function ForYou() {
   const [items, setItems] = useState([]);
@@ -128,6 +130,12 @@ export function ForYou() {
                 {item.metrics.changeCount} changes ·{" "}
                 {item.metrics.snapshotCount} snapshots
               </div>
+
+              {/* Mini sparkline */}
+              {item.sparkline?.points && item.sparkline.points.length >= 2 && (
+                <Sparkline points={item.sparkline.points} />
+              )}
+
 
               {/* P: Add to Cart from For You */}
               <button
