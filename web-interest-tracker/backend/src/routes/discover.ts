@@ -229,25 +229,53 @@ export default function discoverRouter(prisma: PrismaClient) {
           }
         }
 
-        // Freshness 0–1 based on latest snapshot
+        // Freshness 0–1 based on latest snapshot within the window
         const now = Date.now();
         const latestTs = new Date(latest.takenAt as any).getTime();
         const ageMs = now - latestTs;
         const windowMs = DAYS * 24 * 60 * 60 * 1000;
+
         const freshnessScore = Math.max(
           0,
           1 - ageMs / windowMs
         );
 
-        // scoring: similar to For You, but no board weighting
-        const changeScore = Math.min(changeCount, 10) / 10; // 0–1
-        const deltaScore =
-          deltaPct != null ? Math.min(Math.abs(deltaPct), 1.0) : 0;
+        // -----------------------------------------------------------------
+        // Scoring components:
+        //  - changeScore: "how often did it move?" (diminishing returns)
+        //  - magnitudeScore: "how big was the movement?" (capped)
+        //  - historyScore: "do we have a reasonable history?"
+        //  - freshnessScore: "how recent is the latest movement?"
+        // -----------------------------------------------------------------
 
-        const score =
-          0.5 * changeScore +
-          0.3 * deltaScore +
-          0.2 * freshnessScore;
+        // 1) Change frequency (0–1, with diminishing returns)
+        //    1 change -> ok, 3–5 changes -> good, 10+ changes -> saturated
+        const normalizedChanges = Math.min(changeCount, 10) / 10;
+        const changeScore = Math.sqrt(normalizedChanges); // concave curve
+
+        // 2) Magnitude of movement (0–1, cap at 50% move)
+        let magnitudeScore = 0;
+        if (deltaPct != null) {
+          const capped = Math.min(Math.abs(deltaPct), 0.5); // treat 50%+ the same
+          magnitudeScore = capped / 0.5; // 0–1
+        }
+
+        // 3) History depth (0–1, more snapshots is better but saturates)
+        const historyScore = Math.min(
+          Math.log2(snapshotCount + 1) / 4,
+          1
+        );
+
+        // 4) Base score: weighted combination
+        const baseScore =
+          0.35 * changeScore +   // how often it moves
+          0.35 * magnitudeScore + // how far it moved
+          0.20 * freshnessScore + // how recent
+          0.10 * historyScore;    // how much data we have
+
+        // 5) Apply additional time-decay: very stale items get dampened
+        const score = baseScore * (0.6 + 0.4 * freshnessScore);
+
 
         if (score <= 0) continue;
 
