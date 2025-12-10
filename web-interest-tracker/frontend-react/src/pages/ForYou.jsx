@@ -14,18 +14,52 @@ export function ForYou() {
   async function loadForYou() {
     try {
       setLoading(true);
-      // Use discover's recommendedItems as the "For You" feed
+
+      // Use /discover as the source of truth
       const data = await api.get("/discover");
-      setItems(data.recommendedItems || []);
+      const recommended = data.recommendedItems || [];
+      const trendingDomains = data.trendingDomains || [];
+      const topProfiles = data.topProfiles || [];
+
+      const primaryDomain = trendingDomains[0]?.domain || null;
+      const primaryProfile = topProfiles[0]?.profile || null;
+
+      // Re-rank items specifically for "For You"
+      const scored = recommended
+        .map((item) => {
+          const baseScore = item.metrics?.score ?? 0;
+          let boost = 0;
+
+          // Small boost if this item is on your top domain
+          if (primaryDomain && item.domain === primaryDomain) {
+            boost += 0.15;
+          }
+
+          // Small boost if this item matches your top profile
+          if (primaryProfile && item.profile === primaryProfile) {
+            boost += 0.15;
+          }
+
+          return {
+            ...item,
+            _forYouScore: baseScore + boost,
+          };
+        })
+        .sort(
+          (a, b) => (b._forYouScore ?? 0) - (a._forYouScore ?? 0)
+        );
+
+      setItems(scored);
       setWindowDays(data.windowDays || 7);
       setError("");
     } catch (e) {
-      console.error("Failed to load For You items:", e);
+      console.error(e);
       setError(e.message || "Failed to load For You items");
     } finally {
       setLoading(false);
     }
   }
+
   
   async function handleAddToCart(trackedItemId) {
     try {
