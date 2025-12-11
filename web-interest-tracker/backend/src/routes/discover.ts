@@ -184,7 +184,14 @@ export default function discoverRouter(prisma: PrismaClient) {
           freshnessScore: number;
           score: number;
         };
+        sparkline?: {
+          points: {
+            t: string;
+            v: number;
+          }[];
+        };
       };
+
 
       const recommended: RecommendedItem[] = [];
 
