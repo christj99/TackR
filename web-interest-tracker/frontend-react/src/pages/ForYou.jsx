@@ -12,12 +12,68 @@ export function ForYou() {
   useEffect(() => {
     loadForYou();
   }, []);
+  
+  function buildWhyExplanation(item, primaryDomain, primaryProfile) {
+    const domain = item.domain;
+    const profile = item.profile;
+    const metrics = item.metrics || {};
+    const deltaPct = metrics.deltaPct;
+    const changeCount = metrics.changeCount;
+    const snapshotCount = metrics.snapshotCount;
+
+    const reasons = [];
+
+    if (primaryDomain && domain === primaryDomain) {
+      reasons.push(`you track a lot from ${primaryDomain}`);
+    }
+
+    if (primaryProfile && profile === primaryProfile) {
+      const prettyProfile =
+        primaryProfile === "ecommerce_price"
+          ? "price changes"
+          : primaryProfile;
+      reasons.push(
+        `it's the kind of metric you track most (${prettyProfile})`
+      );
+    }
+
+    if (deltaPct != null && Math.abs(deltaPct) >= 0.05) {
+      const dir = deltaPct > 0 ? "up" : "down";
+      const pct = Math.abs(deltaPct * 100).toFixed(1);
+      reasons.push(`its value moved ${dir} about ${pct}% recently`);
+    }
+
+    if (!reasons.length && snapshotCount >= 5 && changeCount >= 2) {
+      reasons.push("it has been moving more than usual recently");
+    }
+
+    if (!reasons.length) {
+      return "Because it looks interesting based on recent changes.";
+    }
+
+    if (reasons.length === 1) {
+      return "Because " + reasons[0] + ".";
+    }
+    if (reasons.length === 2) {
+      return "Because " + reasons[0] + " and " + reasons[1] + ".";
+    }
+
+    return (
+      "Because " +
+      reasons[0] +
+      ", " +
+      reasons[1] +
+      " and " +
+      reasons[2] +
+      "."
+    );
+  }
+  
 
   async function loadForYou() {
     try {
       setLoading(true);
 
-      // Use /discover as the source of truth
       const data = await api.get("/discover");
       const recommended = data.recommendedItems || [];
       const trendingDomains = data.trendingDomains || [];
@@ -26,25 +82,29 @@ export function ForYou() {
       const primaryDomain = trendingDomains[0]?.domain || null;
       const primaryProfile = topProfiles[0]?.profile || null;
 
-      // Re-rank items specifically for "For You"
       const scored = recommended
         .map((item) => {
           const baseScore = item.metrics?.score ?? 0;
           let boost = 0;
 
-          // Small boost if this item is on your top domain
           if (primaryDomain && item.domain === primaryDomain) {
             boost += 0.15;
           }
 
-          // Small boost if this item matches your top profile
           if (primaryProfile && item.profile === primaryProfile) {
             boost += 0.15;
           }
 
+          const why = buildWhyExplanation(
+            item,
+            primaryDomain,
+            primaryProfile
+          );
+
           return {
             ...item,
             _forYouScore: baseScore + boost,
+            _why: why,
           };
         })
         .sort(
@@ -61,6 +121,7 @@ export function ForYou() {
       setLoading(false);
     }
   }
+
 
   
   async function handleAddToCart(trackedItemId) {
@@ -131,13 +192,15 @@ export function ForYou() {
                 {item.metrics.snapshotCount} snapshots
               </div>
 
-              {/* Mini sparkline */}
-              {item.sparkline?.points && item.sparkline.points.length >= 2 && (
-                <Sparkline points={item.sparkline.points} />
+              {item._why && (
+                <div
+                  className="muted"
+                  style={{ marginTop: "0.25rem", fontSize: "0.8rem" }}
+                >
+                  {item._why}
+                </div>
               )}
 
-
-              {/* P: Add to Cart from For You */}
               <button
                 type="button"
                 onClick={() => handleAddToCart(item.id)}
@@ -145,6 +208,7 @@ export function ForYou() {
               >
                 Add to Cart
               </button>
+
             </div>
           ))}
         </div>
