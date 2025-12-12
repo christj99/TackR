@@ -56,24 +56,25 @@ export default function App() {
       refreshCartCount();     // refreshes instantly
     };
 
-    function renderPage() {
+  function renderPage() {
     switch (page) {
       case "boards":
         return <Boards onCartUpdated={handleCartUpdated} />;
       case "discover":
         return <Discover onCartUpdated={handleCartUpdated} />;
-      case "foryou":
+      case "forYou":
         return <ForYou onCartUpdated={handleCartUpdated} />;
       case "cart":
         return <Cart onCartUpdated={handleCartUpdated} />;
       case "checkout":
         return <Checkout onCartUpdated={handleCartUpdated} />;
-      case "prompttrack":
+      case "promptTrack":
         return <PromptTrack onCartUpdated={handleCartUpdated} />;
       default:
         return <Boards onCartUpdated={handleCartUpdated} />;
     }
   }
+
   
 
     useEffect(() => {
